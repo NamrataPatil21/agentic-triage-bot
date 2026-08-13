@@ -24,29 +24,3 @@ v                   v
 Groq Llama 3.3       SQLite Database
 (Tool Calling)      (Orders & Tickets)
 
-🚀 Quickstart Guide
-1. Clone the Repository
-Bash
-git clone https://github.com/NamrataPatil21/agentic-triage-bot.git
-cd agentic-triage-bot
-2. Set Up Environment Variables
-Create a .env file in the root directory:
-
-Code snippet
-GROQ_API_KEY=your_groq_api_key_here
-3. Run the Backend API (Port 8000)
-Bash
-python -m uvicorn app:app --reload --port 8000
-4. Run the Web Application (Port 8501)
-Bash
-python -m streamlit run ui.py --server.port 8501
-🛠️ Tech Stack
-Backend: Python 3.11, FastAPI, Uvicorn, Pydantic
-
-LLM Engine: Groq API (llama-3.3-70b-versatile)
-
-Database: SQLite
-
-Frontend: Streamlit, Custom CSS
-
-Version Control: Git, GitHub
