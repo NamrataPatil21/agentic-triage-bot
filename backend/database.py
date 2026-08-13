@@ -29,9 +29,18 @@ def init_db():
             price REAL,
             status TEXT,
             troubleshooting_step TEXT,
-            warranty_valid INTEGER DEFAULT 1
+            warranty_valid INTEGER DEFAULT 1,
+            tracking_number TEXT,
+            replacement_order_id TEXT
         )
     ''')
+
+    # Ensure schema migrations for existing databases
+    for col in ["tracking_number TEXT", "replacement_order_id TEXT"]:
+        try:
+            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     # Table for Escalated Tickets (Human-in-the-Loop Queue)
     cursor.execute('''

@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Union, Optional
 from groq import Groq
 
 from backend.config import settings
-from backend.services.order_service import get_order_by_id, update_order_status
+from backend.services.order_service import get_order_by_id, update_order_status, update_order_replacement_details
 from backend.services.ticket_service import create_escalation_ticket
 
 # --- GROQ CLIENT INITIALIZATION ---
@@ -36,8 +36,7 @@ def tool_get_order_status(order_id: str) -> str:
 def tool_process_refund_or_replacement(order_id: str, customer_name: str, amount: Union[float, str], reason: str) -> str:
     """
     Tool: Issues replacement/refund or escalates to human approval if amount >= $100.00.
-    Safely converts string inputs (e.g. "100") to float.
-    Enforces threshold logic: amount >= 100.00 MUST create an escalation ticket in SQLite.
+    Returns structured details including replacement_order_id, tracking_number, estimated_delivery, and status.
     """
     try:
         numeric_amount = float(amount)
@@ -56,14 +55,34 @@ def tool_process_refund_or_replacement(order_id: str, customer_name: str, amount
             "status": "REQUIRES_HUMAN_APPROVAL", 
             "ticket_id": ticket_id, 
             "amount": numeric_amount,
-            "message": f"Escalated to management. Ticket #{ticket_id} created for ${numeric_amount:.2f}."
+            "message": f"High-value action flagged for management review. Ticket #{ticket_id} created for ${numeric_amount:.2f}."
         })
     
     # Auto-approval for amounts under $100.00
+    replacement_order_id = f"{order_id}-R"
+    tracking_number = "TRK-FEDEX-89021"
+    estimated_delivery = "2-3 Business Days"
+    
+    reason_str = str(reason).lower()
+    if "refund" in reason_str:
+        status = "REFUND_PROCESSED"
+    else:
+        status = "REPLACEMENT_DISPATCHED"
+
+    update_order_replacement_details(
+        order_id=order_id,
+        new_status=status,
+        tracking_number=tracking_number,
+        replacement_order_id=replacement_order_id
+    )
     update_order_status(order_id, "RESOLVED")
+
     return json.dumps({
-        "status": "SUCCESS", 
-        "message": f"Action processed for order {order_id} (${numeric_amount:.2f})."
+        "status": status, 
+        "replacement_order_id": replacement_order_id,
+        "tracking_number": tracking_number,
+        "estimated_delivery": estimated_delivery,
+        "message": f"Refund/replacement auto-approved for order {order_id} (${numeric_amount:.2f}). Status: {status}, Tracking: {tracking_number}, Replacement Order #: {replacement_order_id}."
     })
 
 # --- GROQ TOOL SPECIFICATIONS ---
@@ -106,10 +125,19 @@ GROQ_TOOLS = [
 
 # --- LLAMA-3.3 CHAT ORCHESTRATION ---
 SYSTEM_INSTRUCTION = """You are an Autonomous Support Engineer named Alex.
-Follow this exact 3-Step Protocol:
-STEP 1 (Inspect): Always call `tool_get_order_status` first to fetch order details and recommended troubleshooting steps.
-STEP 2 (Troubleshoot): Ask the user to try the `recommended_troubleshooting_step` returned by the tool FIRST. Do not process refunds or replacements immediately.
-STEP 3 (Solve): If the user confirms in conversation history that they completed the troubleshooting step and it STILL failed (e.g., they say "no they didn't receive it" or "it didn't work"), call `tool_process_refund_or_replacement`."""
+Follow this exact protocol:
+STEP 1 (Inspect): Always call `tool_get_order_status` first to fetch order details (customer name, price, status, troubleshooting steps).
+STEP 2 (Troubleshoot): If the customer is reporting a defective or lost item for the first time, guide them through the recommended troubleshooting step.
+STEP 3 (Escalate/Solve): If the customer confirms the troubleshooting step FAILED, or if they explicitly ask for a replacement/refund, you MUST immediately call `tool_process_refund_or_replacement`.
+
+CRITICAL TOOL PARAMETERS:
+- `order_id`: The ID of the order.
+- `customer_name`: The customer's full name (from the order details retrieved in Step 1).
+- `amount`: The full price of the item (from the order details retrieved in Step 1).
+- `reason`: Brief explanation of the failure (e.g., "Troubleshooting failed - item won't turn on").
+
+RESPONSE FORMATTING FOR ESCALATIONS:
+When `tool_process_refund_or_replacement` returns status `REQUIRES_HUMAN_APPROVAL` with a `ticket_id`, politely inform the customer that their request (Ticket #X) has been submitted to management for supervisor sign-off because the requested amount equals or exceeds $100.00."""
 
 def run_chat_completion(message: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, str]:
     """
@@ -160,6 +188,7 @@ def run_chat_completion(message: str, history: Optional[List[Dict[str, str]]] = 
             ]
         })
 
+        resolution_data = None
         for tool_call in response_message.tool_calls:
             fn_name = tool_call.function.name
             fn_args = json.loads(tool_call.function.arguments)
@@ -169,6 +198,17 @@ def run_chat_completion(message: str, history: Optional[List[Dict[str, str]]] = 
                 tool_output = tool_get_order_status(**fn_args)
             elif fn_name == "tool_process_refund_or_replacement":
                 tool_output = tool_process_refund_or_replacement(**fn_args)
+                try:
+                    res_obj = json.loads(tool_output)
+                    if res_obj.get("status") in ["SUCCESS", "REPLACEMENT_DISPATCHED", "REFUND_PROCESSED"]:
+                        resolution_data = {
+                            "replacement_order_id": res_obj.get("replacement_order_id", f"{fn_args.get('order_id', '')}-R"),
+                            "tracking_number": res_obj.get("tracking_number", "TRK-FEDEX-89021"),
+                            "estimated_delivery": res_obj.get("estimated_delivery", "2-3 Business Days"),
+                            "status": res_obj.get("status", "REPLACEMENT_DISPATCHED")
+                        }
+                except Exception:
+                    pass
             else:
                 tool_output = json.dumps({"error": f"Unknown tool '{fn_name}'"})
 
@@ -185,7 +225,8 @@ def run_chat_completion(message: str, history: Optional[List[Dict[str, str]]] = 
         )
         return {
             "bot_response": second_response.choices[0].message.content or "",
-            "action_taken": action_log
+            "action_taken": action_log,
+            "resolution_data": resolution_data
         }
 
     return {

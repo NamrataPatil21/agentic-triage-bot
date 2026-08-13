@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from backend.database import init_db
 from backend.services.order_service import get_order_by_id
 from backend.services.ticket_service import get_pending_tickets, approve_or_reject_ticket
-from backend.services.llm_service import run_chat_completion
+from backend.services.llm_service import run_chat_completion, tool_process_refund_or_replacement, tool_get_order_status
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -33,14 +33,19 @@ def startup_event():
     init_db()
 
 # --- PYDANTIC SCHEMAS ---
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     message: str
-    history: Optional[List[Dict[str, Any]]] = []
+    history: Optional[List[Any]] = []
 
 class ChatResponse(BaseModel):
     user_message: str
     bot_response: str
     action_taken: str
+    resolution_data: Optional[Dict[str, Any]] = None
 
 class ApprovalRequest(BaseModel):
     ticket_id: int
@@ -70,14 +75,25 @@ def lookup_order(order_id: str):
 def handle_chat(request: ChatRequest):
     """Multi-turn chat & autonomous tool orchestration endpoint."""
     try:
+        # Safe fallback parsing for history: filter out invalid entries or empty strings
+        sanitized_history = []
+        if request.history:
+            for item in request.history:
+                if isinstance(item, dict):
+                    role = str(item.get("role", "")).strip()
+                    content = str(item.get("content", "")).strip()
+                    if role and content:
+                        sanitized_history.append({"role": role, "content": content})
+        
         result = run_chat_completion(
             message=request.message,
-            history=request.history
+            history=sanitized_history
         )
         return ChatResponse(
             user_message=request.message,
             bot_response=result["bot_response"],
-            action_taken=result["action_taken"]
+            action_taken=result["action_taken"],
+            resolution_data=result.get("resolution_data")
         )
     except Exception as e:
         print("\n==================================================")

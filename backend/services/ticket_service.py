@@ -67,8 +67,15 @@ def approve_or_reject_ticket(ticket_id: int, decision: str) -> Dict[str, Any]:
         
         if row and row["order_id"]:
             order_id = row["order_id"]
-            cursor.execute("UPDATE orders SET status = 'RESOLVED_AND_REFUNDED' WHERE order_id = ?", (order_id,))
-            message = f"Ticket #{ticket_id} APPROVED! Order #{order_id} updated to RESOLVED_AND_REFUNDED in SQLite."
+            replacement_order_id = f"{order_id}-R"
+            tracking_number = "TRK-FEDEX-89021"
+            status_text = f"REPLACEMENT_DISPATCHED ({tracking_number})"
+            cursor.execute("""
+                UPDATE orders 
+                SET status = ?, tracking_number = ?, replacement_order_id = ? 
+                WHERE order_id = ?
+            """, (status_text, tracking_number, replacement_order_id, order_id))
+            message = f"Ticket #{ticket_id} APPROVED! Order #{order_id} updated to {status_text} in SQLite."
         else:
             message = f"Ticket #{ticket_id} APPROVED."
     else:
