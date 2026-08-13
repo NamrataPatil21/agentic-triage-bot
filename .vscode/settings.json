@@ -1,0 +1,17 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+  "python.analysis.exclude": [
+    "venv",
+    "**/__pycache__",
+    "**/.git",
+    "**/inmemory/**"
+  ],
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}"
+  ],
+  "python.analysis.useLibraryCodeForTypes": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "pyrefly.enable": false,
+  "pyrefly.diagnostics.enable": false,
+  "pyrefly.disable": true
+}

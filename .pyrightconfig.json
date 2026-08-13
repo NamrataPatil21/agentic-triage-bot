@@ -1,0 +1,30 @@
+{
+  "include": [
+    ".",
+    "backend",
+    "admin_app.py",
+    "customer_app.py",
+    "app.py",
+    "database.py",
+    "tools.py",
+    "agent.py",
+    "ui.py"
+  ],
+  "exclude": [
+    "venv",
+    "**/node_modules",
+    "**/__pycache__"
+  ],
+  "extraPaths": [
+    "."
+  ],
+  "executionEnvironments": [
+    {
+      "root": "."
+    }
+  ],
+  "venvPath": ".",
+  "venv": "venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "off"
+}
